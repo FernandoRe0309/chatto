@@ -13,6 +13,7 @@ $routes->get('login', 'AuthController::login');
 $routes->post('validar-login', 'AuthController::validarLogin');
 
 $routes->get('logout', 'AuthController::logout');
+$routes->post('auth/loginRostro', 'AuthController::loginRostro');
 $routes->get('usuarios', 'UsuariosController::index');
 
 $routes->get('chat/(:num)', 'ChatController::chat/$1');
