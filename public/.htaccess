@@ -1,0 +1,31 @@
+# Disable directory browsing
+Options -Indexes
+
+# Prevent direct access to files/folders
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Set the base URL
+    RewriteBase /
+    
+    # Redirect trailing slashes
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+    
+    # Send all requests to index.php if not a file or directory
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php/$1 [L]
+</IfModule>
+
+# Handle Authorization Header
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization .+ HTTP_AUTHORIZATION=$0
+</IfModule>
+
+# Protect hidden files from being viewed
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
