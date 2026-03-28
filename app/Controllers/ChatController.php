@@ -3,20 +3,25 @@ namespace App\Controllers;
 
 class ChatController extends BaseController
 {
-    // ============================================================
-    // MÉTODOS WEB (para el sitio en el navegador)
-    // ============================================================
-
     public function chat($usuarioDestinoId)
     {
         if (!session()->get('logueado')) {
             return redirect()->to('/login');
         }
-        $db        = \Config\Database::connect();
+        
+        $db = \Config\Database::connect();
         $encrypter = \Config\Services::encrypter();
-        $miId      = session()->get('usuario_id');
+        $miId = session()->get('usuario_id');
 
-        $builder      = $db->table('conversaciones');
+        // Get destination user info
+        $destino = $db->table('usuarios')
+            ->select('id, nombre')
+            ->where('id', $usuarioDestinoId)
+            ->get()
+            ->getRowArray();
+
+        // Find or create conversation
+        $builder = $db->table('conversaciones');
         $conversacion = $builder
             ->groupStart()
                 ->where('usuario1_id', $miId)
@@ -33,13 +38,14 @@ class ChatController extends BaseController
             $builder->insert([
                 'usuario1_id' => $miId,
                 'usuario2_id' => $usuarioDestinoId,
-                'created_at'  => date('Y-m-d H:i:s')
+                'created_at' => date('Y-m-d H:i:s')
             ]);
             $conversacionId = $db->insertID();
         } else {
             $conversacionId = $conversacion['id'];
         }
 
+        // Get messages
         $mensajes = $db->table('mensajes')
             ->where('conversacion_id', $conversacionId)
             ->orderBy('id', 'ASC')
@@ -58,26 +64,27 @@ class ChatController extends BaseController
 
         return view('chat/chat', [
             'conversacion_id' => $conversacionId,
-            'mensajes'        => $mensajes,
-            'destino_id'      => $usuarioDestinoId
+            'mensajes' => $mensajes,
+            'destino_id' => $usuarioDestinoId,
+            'destino_nombre' => $destino['nombre'] ?? 'Usuario'
         ]);
     }
 
     public function enviar()
     {
-        $db        = \Config\Database::connect();
+        $db = \Config\Database::connect();
         $encrypter = \Config\Services::encrypter();
-        $mensaje   = $this->request->getPost('mensaje');
-        $archivo   = $this->request->getFile('archivo');
-        $tipo      = 'texto';
+        $mensaje = $this->request->getPost('mensaje');
+        $archivo = $this->request->getFile('archivo');
+        $tipo = 'texto';
         $nombreArchivo = null;
 
         if ($archivo && $archivo->isValid() && !$archivo->hasMoved()) {
-            $extension     = $archivo->getExtension();
+            $extension = $archivo->getExtension();
             $nombreArchivo = $archivo->getRandomName();
             $archivo->move('uploads', $nombreArchivo);
             if (in_array($extension, ['jpg','jpeg','png','gif'])) $tipo = 'imagen';
-            if (in_array($extension, ['mp4','mov','webm']))        $tipo = 'video';
+            if (in_array($extension, ['mp4','mov','webm'])) $tipo = 'video';
         }
 
         $mensajeCifrado = null;
@@ -87,11 +94,11 @@ class ChatController extends BaseController
 
         $db->table('mensajes')->insert([
             'conversacion_id' => $this->request->getPost('conversacion_id'),
-            'remitente_id'    => session()->get('usuario_id'),
+            'remitente_id' => session()->get('usuario_id'),
             'mensaje_cifrado' => $mensajeCifrado,
-            'archivo'         => $nombreArchivo,
-            'tipo'            => $tipo,
-            'created_at'      => date('Y-m-d H:i:s')
+            'archivo' => $nombreArchivo,
+            'tipo' => $tipo,
+            'created_at' => date('Y-m-d H:i:s')
         ]);
 
         return redirect()->to('/chat/' . $this->request->getPost('destino_id'));
@@ -99,7 +106,7 @@ class ChatController extends BaseController
 
     public function obtenerMensajes($conversacionId)
     {
-        $db        = \Config\Database::connect();
+        $db = \Config\Database::connect();
         $encrypter = \Config\Services::encrypter();
 
         $mensajes = $db->table('mensajes')
@@ -121,18 +128,12 @@ class ChatController extends BaseController
         return $this->response->setJSON($mensajes);
     }
 
-    // ============================================================
-    // ENDPOINTS API PARA LA APP ANDROID
-    // ============================================================
+    // API ENDPOINTS FOR MOBILE APP
 
-    /**
-     * GET /api/usuarios?mi_id=X
-     * Lista todos los usuarios excepto el propio
-     */
     public function apiUsuarios()
     {
         $miId = $this->request->getGet('mi_id');
-        $db   = \Config\Database::connect();
+        $db = \Config\Database::connect();
 
         $usuarios = $db->table('usuarios')
             ->select('id, nombre, email')
@@ -141,21 +142,16 @@ class ChatController extends BaseController
             ->getResultArray();
 
         return $this->response->setJSON([
-            'success'  => true,
+            'success' => true,
             'usuarios' => $usuarios
         ]);
     }
 
-    /**
-     * POST /api/conversacion
-     * Obtiene o crea una conversación entre dos usuarios
-     * Body: mi_id, destino_id
-     */
     public function apiConversacion()
     {
-        $miId      = $this->request->getPost('mi_id');
+        $miId = $this->request->getPost('mi_id');
         $destinoId = $this->request->getPost('destino_id');
-        $db        = \Config\Database::connect();
+        $db = \Config\Database::connect();
 
         $conversacion = $db->table('conversaciones')
             ->groupStart()
@@ -173,7 +169,7 @@ class ChatController extends BaseController
             $db->table('conversaciones')->insert([
                 'usuario1_id' => $miId,
                 'usuario2_id' => $destinoId,
-                'created_at'  => date('Y-m-d H:i:s')
+                'created_at' => date('Y-m-d H:i:s')
             ]);
             $conversacionId = $db->insertID();
         } else {
@@ -181,21 +177,17 @@ class ChatController extends BaseController
         }
 
         return $this->response->setJSON([
-            'success'         => true,
+            'success' => true,
             'conversacion_id' => $conversacionId
         ]);
     }
 
-    /**
-     * GET /api/mensajes?conversacion_id=X&ultimo_id=Y
-     * Devuelve mensajes (solo los nuevos si se pasa ultimo_id)
-     */
     public function apiMensajes()
     {
         $conversacionId = $this->request->getGet('conversacion_id');
-        $ultimoId       = $this->request->getGet('ultimo_id') ?? 0;
-        $db             = \Config\Database::connect();
-        $encrypter      = \Config\Services::encrypter();
+        $ultimoId = $this->request->getGet('ultimo_id') ?? 0;
+        $db = \Config\Database::connect();
+        $encrypter = \Config\Services::encrypter();
 
         $mensajes = $db->table('mensajes')
             ->where('conversacion_id', $conversacionId)
@@ -218,24 +210,19 @@ class ChatController extends BaseController
         }
 
         return $this->response->setJSON([
-            'success'  => true,
+            'success' => true,
             'mensajes' => $mensajes
         ]);
     }
 
-    /**
-     * POST /api/enviar
-     * Envía un mensaje de texto desde la app
-     * Body: conversacion_id, remitente_id, mensaje
-     */
     public function apiEnviar()
     {
-        $db        = \Config\Database::connect();
+        $db = \Config\Database::connect();
         $encrypter = \Config\Services::encrypter();
 
         $conversacionId = $this->request->getPost('conversacion_id');
-        $remitenteId    = $this->request->getPost('remitente_id');
-        $mensaje        = $this->request->getPost('mensaje');
+        $remitenteId = $this->request->getPost('remitente_id');
+        $mensaje = $this->request->getPost('mensaje');
 
         if (empty($conversacionId) || empty($remitenteId) || empty($mensaje)) {
             return $this->response->setJSON([
@@ -248,10 +235,10 @@ class ChatController extends BaseController
 
         $db->table('mensajes')->insert([
             'conversacion_id' => $conversacionId,
-            'remitente_id'    => $remitenteId,
+            'remitente_id' => $remitenteId,
             'mensaje_cifrado' => $mensajeCifrado,
-            'tipo'            => 'texto',
-            'created_at'      => date('Y-m-d H:i:s')
+            'tipo' => 'texto',
+            'created_at' => date('Y-m-d H:i:s')
         ]);
 
         $nuevoId = $db->insertID();
@@ -259,12 +246,12 @@ class ChatController extends BaseController
         return $this->response->setJSON([
             'success' => true,
             'mensaje' => [
-                'id'              => $nuevoId,
+                'id' => $nuevoId,
                 'conversacion_id' => $conversacionId,
-                'remitente_id'    => $remitenteId,
-                'mensaje'         => $mensaje,
-                'tipo'            => 'texto',
-                'created_at'      => date('Y-m-d H:i:s')
+                'remitente_id' => $remitenteId,
+                'mensaje' => $mensaje,
+                'tipo' => 'texto',
+                'created_at' => date('Y-m-d H:i:s')
             ]
         ]);
     }
